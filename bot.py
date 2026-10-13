@@ -1,6 +1,7 @@
 
 import os
 import asyncio
+import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -18,12 +19,30 @@ load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 API_KEY = os.getenv("TWELVE_DATA_API_KEY")
 
+# Only this Telegram group can use the bot
+ALLOWED_GROUP_ID = -1004383626747
+
 PAIRS = {
     "gold": ("XAU/USD", "🥇 GOLD", 2),
     "btc": ("BTC/USD", "₿ BITCOIN", 2),
     "eurusd": ("EUR/USD", "💶 EUR/USD", 5),
     "gbpusd": ("GBP/USD", "💷 GBP/USD", 5),
 }
+
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger("leo_price_bot")
+
+
+def is_allowed(update: Update) -> bool:
+    chat = update.effective_chat
+    return (
+        chat is not None
+        and chat.type in ("group", "supergroup")
+        and chat.id == ALLOWED_GROUP_ID
+    )
 
 
 def current_time():
@@ -57,6 +76,9 @@ async def start(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
+    if not is_allowed(update):
+        return
+
     message = (
         "🤖 LEO PRICE BOT\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
@@ -76,6 +98,9 @@ async def price_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
+    if not is_allowed(update):
+        return
+
     command = (
         update.message.text
         .split()[0]
@@ -83,6 +108,9 @@ async def price_command(
         .replace("/", "")
         .lower()
     )
+
+    if command not in PAIRS:
+        return
 
     symbol, label, digits = PAIRS[command]
 
@@ -101,8 +129,11 @@ async def price_command(
         await update.message.reply_text(message)
 
     except Exception as error:
-        print(f"PRICE ERROR [{symbol}]: {type(error).__name__}: {error}")
-
+        logger.error(
+            "Price error for %s: %s",
+            symbol,
+            type(error).__name__,
+        )
         await update.message.reply_text(
             f"❌ {symbol} price unavailable.\n"
             "Please try again later."
@@ -113,18 +144,21 @@ async def all_prices(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
+    if not is_allowed(update):
+        return
+
     results = await asyncio.gather(
         *(
             fetch_price(symbol)
             for symbol, _, _ in PAIRS.values()
         ),
-        return_exceptions=True
+        return_exceptions=True,
     )
 
     lines = [
         "📊 LEO MARKET PRICES",
         "━━━━━━━━━━━━━━━━━━",
-        ""
+        "",
     ]
 
     for (_, (symbol, label, digits)), result in zip(
@@ -141,7 +175,7 @@ async def all_prices(
         "",
         f"🕒 Checked: {current_time()}",
         "━━━━━━━━━━━━━━━━━━",
-        "⚡ Latest Available Market Quotes"
+        "⚡ Latest Available Market Quotes",
     ])
 
     await update.message.reply_text(
@@ -152,12 +186,12 @@ async def all_prices(
 def main():
     if not TOKEN:
         raise RuntimeError(
-            "Telegram token missing in .env"
+            "Telegram token missing"
         )
 
     if not API_KEY:
         raise RuntimeError(
-            "Twelve Data API key missing in .env"
+            "Twelve Data API key missing"
         )
 
     app = (
@@ -179,7 +213,10 @@ def main():
         CommandHandler("all", all_prices)
     )
 
-    print("Leo Price Bot is running...")
+    print(
+        "Leo Price Bot V3 - Private Group Lock Active",
+        flush=True,
+    )
 
     app.run_polling()
 
