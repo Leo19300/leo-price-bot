@@ -1,6 +1,7 @@
 
 import os
 import asyncio
+import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -11,9 +12,16 @@ from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     ContextTypes,
+    MessageHandler,
+    filters,
 )
 
 load_dotenv()
+
+logging.basicConfig(
+    format='%(asctime)s | %(levelname)s | %(name)s | %(message)s',
+    level=logging.INFO,
+)
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 API_KEY = os.getenv("TWELVE_DATA_API_KEY")
@@ -173,6 +181,28 @@ async def all_prices(
     )
 
 
+
+async def startup_check(app):
+    me = await app.bot.get_me()
+    print(f"TELEGRAM CONNECTED AS: @{me.username} (id={me.id})")
+    print(f"ALLOWED GROUP ID: {ALLOWED_GROUP_ID}")
+
+
+async def debug_incoming_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    message = update.effective_message
+    if chat and message:
+        print(
+            f"INCOMING UPDATE: chat_id={chat.id}, "
+            f"chat_type={chat.type}, text={message.text!r}, "
+            f"allowed={is_allowed_group(update)}"
+        )
+
+
+async def log_error(update: object, context: ContextTypes.DEFAULT_TYPE):
+    print(f"TELEGRAM ERROR: {context.error!r}")
+
+
 def main():
     if not TOKEN:
         raise RuntimeError(
@@ -187,6 +217,7 @@ def main():
     app = (
         ApplicationBuilder()
         .token(TOKEN)
+        .post_init(startup_check)
         .build()
     )
 
@@ -203,8 +234,14 @@ def main():
         CommandHandler("all", all_prices)
     )
 
-    print("Leo Price Bot is running...")
+    # Diagnostic logger: confirms whether Telegram is delivering group commands.
+    app.add_handler(
+        MessageHandler(filters.COMMAND, debug_incoming_command),
+        group=1,
+    )
+    app.add_error_handler(log_error)
 
+    print("Leo Price Bot is starting...")
     app.run_polling()
 
 
